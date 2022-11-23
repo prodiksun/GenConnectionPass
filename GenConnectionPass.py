@@ -33,6 +33,8 @@ def ping(ipaddr):
             ip_ping_status = 1
         except subprocess.CalledProcessError:
             print("\033[31m{}".format("Хост недоступен:"), "\033[0m{}".format(ipaddr))
+            with open(file_ipaddr_unavail, 'a') as f:
+                f.write(ipaddr + '\n')
             ip_ping_status = 0
         
 
@@ -139,3 +141,4 @@ for ipaddr in inv_ip:
             with open(file_no_access, 'a') as f:
                     f.write(ipaddr + '\n')
             print("Пароли не подходят или устройство недоступно по ssh.")
+            list_sshpass = open(file_secret, 'rt')
