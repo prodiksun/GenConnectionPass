@@ -46,7 +46,7 @@ def ssh_connection(ipaddr, sshpass, cmd_line):
     ssh = SSHClient()
     ssh.set_missing_host_key_policy(AutoAddPolicy())
     try:
-        ssh.connect(hostname=ipaddr, username=user, password=sshpass, port=port, timeout=5)
+        ssh.connect(hostname=ipaddr, username=user, password=sshpass, port=port)
         ssh_stdin, ssh_stdout, ssh_stderr = ssh.exec_command(cmd_line)
         ssh_result = ssh_stdout.read()
     except Exception:
@@ -60,35 +60,51 @@ def scp_connection(file_rsa, rem_path):
     ssh = SSHClient()
     ssh.load_system_host_keys()
     ssh.set_missing_host_key_policy(AutoAddPolicy())
-    ssh.connect(hostname=ipaddr, username=user, password=sshpass, port=port, timeout=5)
+    ssh.connect(hostname=ipaddr, username=user, password=sshpass, port=port)
     scp = SCPClient(ssh.get_transport())
     scp.put(file_rsa, recursive=True, remote_path=rem_path)
     ssh.close()
+
 
 # Определение операционной системы
 @contextmanager
 def detect_os(ssh_result):
     global system_os
     global device
-    print('Пароль подошел')
     if b'Linux 3.9.11 armv7l\n' in ssh_result:
         system_os = 'OpenWRT'
         device = 'MPSB'
     elif b'Linux 3.14.16 armv7l\n' in ssh_result:
         system_os = 'OpenWRT'
         device = 'TMSB'
+    elif b'Linux 3.18.44 mips\n' in ssh_result:
+        system_os = 'OpenWRT 3.18.44'
+        device = 'IRZ-O'
+    elif b'Linux 4.14.162 mips\n' in ssh_result:
+        system_os = 'OpenWRT 4.14.162'
+        device = 'IRZ-O'
+    elif b'Linux 2.6.39.1iRZ armv4tl\n' in ssh_result:
+        system_os = 'BusyBox v1.21.1'
+        device = 'IRZ-B'
     elif b'Linux 2.6.39.2iRZ armv4tl\n' in ssh_result:
-        system_os = 'OpenWRT'
-        device = 'IRZ'
+        system_os = 'BusyBox v1.18.5'
+        device = 'IRZ-B'
+    elif b'Linux 3.5.7iRZ armv4tl\n' in ssh_result:
+        system_os = 'Busybox 1.21'
+        device = 'IRZ-B'
+    elif b'Linux 3.5.7-iRZ armv4tl\n' in ssh_result:
+        system_os = 'Busybox 1.21'
+        device = 'IRZ-B'
     else:
         system_os = False
-        print('Система отлична от OpenWRT')
+        print('Система отлична от известных')
         with open(file_no_access, 'a') as f:
             f.write(ipaddr + '\n')
         device =''
     if device != '':
+        print(device, system_os)
         with open(file_ipaddr_avail, 'a') as f:
-            f.write(ipaddr +  ';' + user + ';' + sshpass + ';' + device + ';' + system_os +'\n')
+            f.write(ipaddr +  ';' + user + ';' + sshpass + ';' + device + ';' + system_os + '\n')
 
 # Переменные
 file_ipaddr = 'ipaddresses.csv'
@@ -98,8 +114,6 @@ file_no_access = 'no_access.csv'
 user = 'root'
 file_secret = 'ssh_pass.txt'
 port = '22'
-file_rsa = 'id_rsa.pub'
-rem_path = '/tmp'
 device = ''
 system_os = False
 ssh_result = 0
@@ -127,18 +141,68 @@ for ipaddr in inv_ip:
             except Exception:
                 ssh_result = 0
 
-    if ssh_result != 0 and system_os != False and ip_ping_status == 1:
-        try:
-            scp_connection(file_rsa, rem_path)
-            cmd_line = 'cd /etc/dropbear/ && ls && cat /tmp/id_*.pub >> authorized_keys && chmod 0600 authorized_keys'
-            ssh_connection(ipaddr, sshpass, cmd_line)
-            print('RSA ключ записан и установлен')
-        except Exception:
-            if ip_ping_status == 1:
+    if ssh_result != 0 and ip_ping_status == 1:
+        print('Пароль подошел')
+        if system_os != 'OpenWRT' and device =='TMSB' or device =='MPSB':
+            file_rsa = 'id_rsa.pub'
+            rem_path = '/tmp'
+            try:
+                scp_connection(file_rsa, rem_path)
+                cmd_line = 'cd /etc/dropbear/ && cat /tmp/id_rsa.pub >> authorized_keys && chmod 0600 authorized_keys'
+                ssh_connection(ipaddr, sshpass, cmd_line)
+                print('RSA ключ записан и установлен.')
+            except Exception:
                 print('Ключ не установлен')
+
+        if system_os == 'OpenWRT' and device =='TMSB' or device =='MPSB':
+            try:
+                file_rsa = './files_owrt/'
+                rem_path = '/tmp/'
+                scp_connection(file_rsa, rem_path)
+                cmd_line = 'cd /etc/dropbear/ && cat /tmp/id_rsa.pub >> authorized_keys && chmod 0600 authorized_keys'
+                ssh_connection(ipaddr, sshpass, cmd_line)
+                cmd_line = 'cd /tmp/ && chmod +x setup_ntp.sh && sh setup_ntp.sh'
+                ssh_connection(ipaddr, sshpass, cmd_line)
+                print('RSA ключ записан и установлен.')
+                cmd_line = 'date'
+                ssh_connection(ipaddr, sshpass, cmd_line)
+                print(ssh_result)
+            except Exception:
+                print('Ключ не установлен')
+
+        if device =='IRZ-B':
+            try:
+                cmd_line = 'mkdir /mnt/rwfs/root'
+                ssh_connection(ipaddr, sshpass, cmd_line)
+                file_rsa = './files_irz/'
+                rem_path = '/mnt/rwfs/root/'
+                scp_connection(file_rsa, rem_path)
+                cmd_line = 'cd /mnt/rwfs/root/ && chmod +x startup.sh && sh startup.sh'
+                ssh_connection(ipaddr, sshpass, cmd_line)
+                print('RSA ключ записан и установлен.')
+                cmd_line = 'date'
+                ssh_connection(ipaddr, sshpass, cmd_line)
+                print(ssh_result)
+            except Exception:
+                print('Ключ не установлен')
+
+        if device =='IRZ-O':
+            try:
+                file_rsa = './files_irz_o/'
+                rem_path = '/tmp/'
+                scp_connection(file_rsa, rem_path)
+                cmd_line = 'cd /tmp/ && chmod +x ssh_ntp.sh && sh ssh_ntp.sh'
+                ssh_connection(ipaddr, sshpass, cmd_line)
+                print('RSA ключ записан и установлен.')
+                cmd_line = 'date'
+                ssh_connection(ipaddr, sshpass, cmd_line)
+                print(ssh_result)
+            except Exception:
+                print('Ключ не установлен')
+
     else:
-        if ip_ping_status == 1 and system_os != False or ssh_result == 0:
+        if ssh_result == 0 and ip_ping_status != 0:
             with open(file_no_access, 'a') as f:
-                    f.write(ipaddr + '\n')
+                f.write(ipaddr + '\n')
             print("Пароли не подходят или устройство недоступно по ssh.")
-            list_sshpass = open(file_secret, 'rt')
+    list_sshpass = open(file_secret, 'rt')
